@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     IIS Default Web Site based WebDAV Full Deployment & Tuning
 .DESCRIPTION
@@ -19,7 +19,7 @@ if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]:
 }
 
 Write-Host ">>> Installing IIS and WebDAV..." -ForegroundColor Cyan
-Install-WindowsFeature -Name Web-Server, Web-Mgmt-Console, Web-Dav-Publishing, Web-Filtering, Web-CertProvider -IncludeManagementTools
+Install-WindowsFeature -Name Web-Server, Web-Mgmt-Console, Web-Dav-Publishing, Web-Filtering, Web-CertProvider, Web-Windows-Auth -IncludeManagementTools
 
 # --- 2. Resource Optimization (Disable Defrag and Unnecessary Services) ---
 Write-Host ">>> Optimizing resources..." -ForegroundColor Cyan
@@ -60,6 +60,13 @@ if (-not $mimeExists) {
     Add-WebConfigurationProperty -Filter "system.webServer/staticContent" -Name "." -Value @{fileExtension='.dlpenc'; mimeType='application/octet-stream'}
 }
 
+# Add extensionless (.) MIME type
+Write-Host ">>> Adding MIME type (.)..." -ForegroundColor Cyan
+$mimeExistsDot = Get-WebConfiguration -Filter "system.webServer/staticContent/mimeMap[@fileExtension='.']" -ErrorAction SilentlyContinue
+if (-not $mimeExistsDot) {
+    Add-WebConfigurationProperty -Filter "system.webServer/staticContent" -Name "." -Value @{fileExtension='.'; mimeType='application/octet-stream'}
+}
+
 # Create evidence virtual directory (under default site)
 if (!(Get-WebVirtualDirectory -Site $SiteName -Name "evidence" -ErrorAction SilentlyContinue)) {
     New-WebVirtualDirectory -Site $SiteName -Name "evidence" -PhysicalPath $EvidencePath
@@ -85,6 +92,22 @@ try {
 # --- 6. WebDAV and Performance Tuning (tunning_for_webdav.ps1 logic) ---
 Write-Host ">>> Enabling WebDAV and applying kernel tuning..." -ForegroundColor Cyan
 Set-WebConfigurationProperty -Filter "system.webServer/webdav/authoring" -Name "enabled" -Value "True" -PSPath "IIS:\"
+
+# Windows Authentication and Anonymous disable for evidence dir
+Write-Host ">>> Configuring Windows Authentication..." -ForegroundColor Cyan
+Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value "False" -PSPath "IIS:\" -Location "$SiteName/evidence"
+Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/windowsAuthentication" -Name "enabled" -Value "True" -PSPath "IIS:\" -Location "$SiteName/evidence"
+
+# WebDAV Authoring Rule for evidence dir
+Write-Host ">>> Adding WebDAV Authoring Rule..." -ForegroundColor Cyan
+$ruleExists = Get-WebConfiguration -Filter "system.webServer/webdav/authoring/rules/add[@users='*']" -PSPath "IIS:\" -Location "$SiteName/evidence" -ErrorAction SilentlyContinue
+if (-not $ruleExists) {
+    Add-WebConfiguration -Filter "system.webServer/webdav/authoring/rules" -Value @{users='*';roles='';permissions='Read, Source, Write'} -PSPath "IIS:\" -Location "$SiteName/evidence"
+}
+
+# Enable Directory Browsing for evidence dir
+Write-Host ">>> Enabling Directory Browsing..." -ForegroundColor Cyan
+Set-WebConfigurationProperty -Filter "system.webServer/directoryBrowse" -Name "enabled" -Value "True" -PSPath "IIS:\" -Location "$SiteName/evidence"
 
 # IIS Kernel/AppPool Tuning
 $appCmd = "$env:windir\system32\inetsrv\appcmd.exe"
