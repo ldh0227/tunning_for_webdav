@@ -55,7 +55,8 @@ Start-Website -Name $SiteName -ErrorAction SilentlyContinue
 
 # Add dlpenc MIME type
 Write-Host ">>> Adding MIME type (.dlpenc)..." -ForegroundColor Cyan
-if (!(Get-WebConfigurationProperty -Filter "system.webServer/staticContent" -Name "." | Where-Object { $_.fileExtension -eq ".dlpenc" })) {
+$mimeExists = Get-WebConfiguration -Filter "system.webServer/staticContent/mimeMap[@fileExtension='.dlpenc']" -ErrorAction SilentlyContinue
+if (-not $mimeExists) {
     Add-WebConfigurationProperty -Filter "system.webServer/staticContent" -Name "." -Value @{fileExtension='.dlpenc'; mimeType='application/octet-stream'}
 }
 
@@ -107,13 +108,13 @@ try {
         $xml = [xml]"<?xml version=`"1.0`" encoding=`"UTF-8`"?><configuration></configuration>"
     }
 
-    $systemWeb = $xml.configuration.'system.web'
+    $systemWeb = $xml.SelectSingleNode("/configuration/system.web")
     if ($null -eq $systemWeb) {
         $systemWeb = $xml.CreateElement("system.web")
-        $xml.configuration.AppendChild($systemWeb) | Out-Null
+        $xml.SelectSingleNode("/configuration").AppendChild($systemWeb) | Out-Null
     }
 
-    $httpRuntime = $systemWeb.httpRuntime
+    $httpRuntime = $systemWeb.SelectSingleNode("httpRuntime")
     if ($null -eq $httpRuntime) {
         $httpRuntime = $xml.CreateElement("httpRuntime")
         $systemWeb.AppendChild($httpRuntime) | Out-Null
@@ -132,9 +133,11 @@ Set-WebConfigurationProperty -Filter "system.applicationHost/applicationPools/ad
 Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/limits" -Name "connectionTimeout" -Value ([TimeSpan]::FromSeconds(600)) -PSPath "IIS:\"
 
 # Request Filtering Verbs (Allow PUT)
-$putVerb = Get-WebConfigurationCollection -Filter "$SitePathFilter/verbs" -PSPath "IIS:\" -Location $SiteName | Where-Object { $_.verb -eq 'PUT' }
+$putVerb = Get-WebConfiguration -Filter "$SitePathFilter/verbs/add[@verb='PUT']" -PSPath "IIS:\" -Location $SiteName -ErrorAction SilentlyContinue
 if ($putVerb) {
-    if ($putVerb.allowed -ne "True") { $putVerb.allowed = "True" }
+    if ($putVerb.allowed -ne "True") {
+        Set-WebConfigurationProperty -Filter "$SitePathFilter/verbs/add[@verb='PUT']" -Name "allowed" -Value "True" -PSPath "IIS:\" -Location $SiteName
+    }
 } else {
     Add-WebConfiguration -Filter "$SitePathFilter/verbs" -Value @{verb='PUT';allowed='True'} -PSPath "IIS:\" -Location $SiteName
 }

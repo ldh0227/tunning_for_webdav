@@ -118,14 +118,14 @@ Function Apply-WebConfigSettings {
         }
 
         # Ensure system.web section exists
-        $systemWebServer = $xml.configuration.'system.web'
+        $systemWebServer = $xml.SelectSingleNode("/configuration/system.web")
         if ($null -eq $systemWebServer) {
             $systemWebServer = $xml.CreateElement("system.web")
-            $xml.configuration.AppendChild($systemWebServer) | Out-Null
+            $xml.SelectSingleNode("/configuration").AppendChild($systemWebServer) | Out-Null
         }
 
         # Ensure httpRuntime section exists
-        $httpRuntime = $systemWebServer.httpRuntime
+        $httpRuntime = $systemWebServer.SelectSingleNode("httpRuntime")
         if ($null -eq $httpRuntime) {
             $httpRuntime = $xml.CreateElement("httpRuntime")
             $systemWebServer.AppendChild($httpRuntime) | Out-Null
@@ -193,10 +193,10 @@ if ($TargetSite) {
     # 9. Request Filtering Verbs (Allow PUT)
     Write-Host " 9. Ensuring 'PUT' verb is allowed for WebDAV..."
     # Check if a rule for PUT already exists
-    $putVerb = Get-WebConfigurationCollection -Filter "$SitePathFilter/verbs" -PSPath "IIS:\" -Location $LocationPath | Where-Object { $_.verb -eq 'PUT' }
+    $putVerb = Get-WebConfiguration -Filter "$SitePathFilter/verbs/add[@verb='PUT']" -PSPath "IIS:\" -Location $LocationPath -ErrorAction SilentlyContinue
     if ($putVerb) {
         if ($putVerb.allowed -ne "True") {
-            $putVerb.allowed = "True"
+            Set-WebConfigurationProperty -Filter "$SitePathFilter/verbs/add[@verb='PUT']" -Name "allowed" -Value "True" -PSPath "IIS:\" -Location $LocationPath
         }
         Write-Host "   [INFO] PUT verb rule already exists, ensured it is set to 'Allowed'." -ForegroundColor Gray
     } else {
