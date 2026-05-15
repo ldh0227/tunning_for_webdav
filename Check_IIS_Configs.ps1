@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     IIS & WebDAV Configuration Health Check Tool (v3.0 - Refactored)
 .DESCRIPTION

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Performs a high-performance, concurrent stress test on a WebDAV server using batched asynchronous requests.
     This version uses System.Net.Http.HttpClient for improved performance and sends requests in parallel.

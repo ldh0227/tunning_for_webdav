@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     IIS & WebDAV Full Tuning Script (v3.0 - Refactored)
 .DESCRIPTION
