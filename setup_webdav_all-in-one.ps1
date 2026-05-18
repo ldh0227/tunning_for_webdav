@@ -19,7 +19,7 @@ if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]:
 }
 
 Write-Host ">>> Installing IIS and WebDAV..." -ForegroundColor Cyan
-Install-WindowsFeature -Name Web-Server, Web-Mgmt-Console, Web-Dav-Publishing, Web-Filtering, Web-CertProvider, Web-Windows-Auth -IncludeManagementTools
+Install-WindowsFeature -Name Web-Server, Web-Mgmt-Console, Web-Dav-Publishing, Web-Filtering, Web-CertProvider, Web-Windows-Auth, Web-Basic-Auth, Web-Url-Auth -IncludeManagementTools
 
 # --- 2. Resource Optimization (Disable Defrag and Unnecessary Services) ---
 Write-Host ">>> Optimizing resources..." -ForegroundColor Cyan
@@ -39,12 +39,17 @@ Write-Host ">>> Configuring epoadmin account and permissions..." -ForegroundColo
 if (!(Get-LocalUser -Name "epoadmin" -ErrorAction SilentlyContinue)) {
     New-LocalUser -Name "epoadmin" -Password (ConvertTo-SecureString "P@ssw0rd123!" -AsPlainText -Force) -Description "WebDAV Admin Account"
 }
+Add-LocalGroupMember -Group "Administrators" -Member "epoadmin" -ErrorAction SilentlyContinue
 
 if (!(Test-Path $EvidencePath)) { New-Item -Path $EvidencePath -ItemType Directory -Force }
 $Acl = Get-Acl $EvidencePath
 $Ar = New-Object System.Security.AccessControl.FileSystemAccessRule("epoadmin", "Modify", "ContainerInherit,ObjectInherit", "None", "Allow")
 $Acl.SetAccessRule($Ar)
 Set-Acl $EvidencePath $Acl
+
+if (!(Get-SmbShare -Name "evidence" -ErrorAction SilentlyContinue)) {
+    New-SmbShare -Name "evidence" -Path $EvidencePath -FullAccess "epoadmin" -Description "Trellix Evidence Share"
+}
 
 # --- 4. Default Web Site Configuration and MIME Types ---
 Import-Module WebAdministration
@@ -72,6 +77,14 @@ if (!(Get-WebVirtualDirectory -Site $SiteName -Name "evidence" -ErrorAction Sile
     New-WebVirtualDirectory -Site $SiteName -Name "evidence" -PhysicalPath $EvidencePath
 }
 
+# Configure physical path credentials for Default Web Site and virtual directory
+Write-Host ">>> Configuring Site & Virtual Directory connection credentials..." -ForegroundColor Cyan
+Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/']" -Name "userName" -Value "epoadmin" -PSPath "IIS:\"
+Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/']" -Name "password" -Value "P@ssw0rd123!" -PSPath "IIS:\"
+
+Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/evidence']" -Name "userName" -Value "epoadmin" -PSPath "IIS:\"
+Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/evidence']" -Name "password" -Value "P@ssw0rd123!" -PSPath "IIS:\"
+
 # --- 5. Certificate Registration and HTTPS Binding (Default Site) ---
 Write-Host ">>> Registering SSL certificate and binding to Default Web Site..." -ForegroundColor Cyan
 try {
@@ -93,20 +106,23 @@ try {
 Write-Host ">>> Enabling WebDAV and applying kernel tuning..." -ForegroundColor Cyan
 Set-WebConfigurationProperty -Filter "system.webServer/webdav/authoring" -Name "enabled" -Value "True" -PSPath "IIS:\"
 
-# Windows Authentication and Anonymous disable for evidence dir
-Write-Host ">>> Configuring Windows Authentication..." -ForegroundColor Cyan
-Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value "False" -PSPath "IIS:\" -Location "$SiteName/evidence"
-Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/windowsAuthentication" -Name "enabled" -Value "True" -PSPath "IIS:\" -Location "$SiteName/evidence"
+# Authentication Settings for Default Web Site
+Write-Host ">>> Configuring Authentication Settings..." -ForegroundColor Cyan
+Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/anonymousAuthentication" -Name "enabled" -Value "False" -PSPath "IIS:\" -Location $SiteName
+Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/aspNetImpersonationAuthentication" -Name "enabled" -Value "False" -PSPath "IIS:\" -Location $SiteName -ErrorAction SilentlyContinue
+Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/windowsAuthentication" -Name "enabled" -Value "True" -PSPath "IIS:\" -Location $SiteName
+Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/basicAuthentication" -Name "enabled" -Value "True" -PSPath "IIS:\" -Location $SiteName -ErrorAction SilentlyContinue
 
-# WebDAV Authoring Rule for evidence dir
+# WebDAV Authoring Rule for Site
 Write-Host ">>> Adding WebDAV Authoring Rule..." -ForegroundColor Cyan
-$ruleExists = Get-WebConfiguration -Filter "system.webServer/webdav/authoring/rules/add[@users='*']" -PSPath "IIS:\" -Location "$SiteName/evidence" -ErrorAction SilentlyContinue
+$ruleExists = Get-WebConfiguration -Filter "system.webServer/webdav/authoring/rules/add[@users='*']" -PSPath "IIS:\" -Location $SiteName -ErrorAction SilentlyContinue
 if (-not $ruleExists) {
-    Add-WebConfiguration -Filter "system.webServer/webdav/authoring/rules" -Value @{users='*';roles='';permissions='Read, Source, Write'} -PSPath "IIS:\" -Location "$SiteName/evidence"
+    Add-WebConfiguration -Filter "system.webServer/webdav/authoring/rules" -Value @{users='*';roles='';permissions='Read, Source, Write'} -PSPath "IIS:\" -Location $SiteName
 }
 
-# Enable Directory Browsing for evidence dir
+# Enable Directory Browsing for Site and evidence dir
 Write-Host ">>> Enabling Directory Browsing..." -ForegroundColor Cyan
+Set-WebConfigurationProperty -Filter "system.webServer/directoryBrowse" -Name "enabled" -Value "True" -PSPath "IIS:\" -Location $SiteName
 Set-WebConfigurationProperty -Filter "system.webServer/directoryBrowse" -Name "enabled" -Value "True" -PSPath "IIS:\" -Location "$SiteName/evidence"
 
 # IIS Kernel/AppPool Tuning
