@@ -118,8 +118,10 @@ Set-WebConfigurationProperty -Filter "system.webServer/security/authentication/b
 # WebDAV Authoring Rule for Site
 Write-Host ">>> Adding WebDAV Authoring Rule..." -ForegroundColor Cyan
 $ruleExists = Get-WebConfiguration -Filter "system.webServer/webdav/authoringRules/add[@users='*']" -PSPath "IIS:\" -Location $SiteName -ErrorAction SilentlyContinue
-if (-not $ruleExists) {
-    Add-WebConfiguration -Filter "system.webServer/webdav/authoringRules" -Value @{users='*';path='*';access='Read, Write, Source'} -PSPath "IIS:\" -Location $SiteName
+if ($ruleExists) {
+    Set-WebConfigurationProperty -Filter "system.webServer/webdav/authoringRules/add[@users='*']" -Name "access" -Value "Read,Write,Source" -PSPath "IIS:\" -Location $SiteName
+} else {
+    Add-WebConfiguration -Filter "system.webServer/webdav/authoringRules" -Value @{users='*';path='*';access='Read,Write,Source'} -PSPath "IIS:\" -Location $SiteName
 }
 
 # Enable Directory Browsing for Site and evidence dir
