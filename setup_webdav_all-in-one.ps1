@@ -10,6 +10,8 @@
 # --- User Input Section ---
 $CertPath = Read-Host "Enter the full path to the certificate (.pfx) file"
 $CertPassword = Read-Host "Enter the certificate password" -AsSecureString
+$EpoAdminPasswordSecure = Read-Host "Enter the password for epoadmin account" -AsSecureString
+$EpoAdminPassword = (New-Object System.Management.Automation.PSCredential("dummy", $EpoAdminPasswordSecure)).GetNetworkCredential().Password
 $EvidencePath = Read-Host "Enter the evidence virtual directory path (Default: D:\evidence)"
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) { $EvidencePath = "D:\evidence" }
 
@@ -37,7 +39,7 @@ foreach ($svc in $DisableServices) {
 # --- 3. Local Account (epoadmin) Creation and Permissions ---
 Write-Host ">>> Configuring epoadmin account and permissions..." -ForegroundColor Cyan
 if (!(Get-LocalUser -Name "epoadmin" -ErrorAction SilentlyContinue)) {
-    New-LocalUser -Name "epoadmin" -Password (ConvertTo-SecureString "P@ssw0rd123!" -AsPlainText -Force) -Description "WebDAV Admin Account"
+    New-LocalUser -Name "epoadmin" -Password $EpoAdminPasswordSecure -Description "WebDAV Admin Account"
 }
 Add-LocalGroupMember -Group "Administrators" -Member "epoadmin" -ErrorAction SilentlyContinue
 
@@ -80,10 +82,10 @@ if (!(Get-WebVirtualDirectory -Site $SiteName -Name "evidence" -ErrorAction Sile
 # Configure physical path credentials for Default Web Site and virtual directory
 Write-Host ">>> Configuring Site & Virtual Directory connection credentials..." -ForegroundColor Cyan
 Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/']" -Name "userName" -Value "epoadmin" -PSPath "IIS:\"
-Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/']" -Name "password" -Value "P@ssw0rd123!" -PSPath "IIS:\"
+Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/']" -Name "password" -Value $EpoAdminPassword -PSPath "IIS:\"
 
 Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/evidence']" -Name "userName" -Value "epoadmin" -PSPath "IIS:\"
-Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/evidence']" -Name "password" -Value "P@ssw0rd123!" -PSPath "IIS:\"
+Set-WebConfigurationProperty -Filter "system.applicationHost/sites/site[@name='$SiteName']/application[@path='/']/virtualDirectory[@path='/evidence']" -Name "password" -Value $EpoAdminPassword -PSPath "IIS:\"
 
 # --- 5. Certificate Registration and HTTPS Binding (Default Site) ---
 Write-Host ">>> Registering SSL certificate and binding to Default Web Site..." -ForegroundColor Cyan
