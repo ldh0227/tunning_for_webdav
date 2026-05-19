@@ -12,6 +12,8 @@ $CertPath = Read-Host "Enter the full path to the certificate (.pfx) file"
 $CertPassword = Read-Host "Enter the certificate password" -AsSecureString
 $EpoAdminPasswordSecure = Read-Host "Enter the password for epoadmin account" -AsSecureString
 $EpoAdminPassword = (New-Object System.Management.Automation.PSCredential("dummy", $EpoAdminPasswordSecure)).GetNetworkCredential().Password
+$WebPort = Read-Host "Enter the HTTPS port for WebDAV (Default: 443)"
+if ([string]::IsNullOrWhiteSpace($WebPort)) { $WebPort = "443" }
 $EvidencePath = Read-Host "Enter the evidence virtual directory path (Default: D:\evidence)"
 if ([string]::IsNullOrWhiteSpace($EvidencePath)) { $EvidencePath = "D:\evidence" }
 
@@ -93,13 +95,14 @@ try {
     $pfx = Import-PfxCertificate -FilePath $CertPath -CertStoreLocation Cert:\LocalMachine\My -Password $CertPassword -Exportable
     $Thumbprint = $pfx.Thumbprint
     
-    # Add 443 port binding to default site
-    if (!(Get-WebBinding -Name $SiteName -Protocol "https")) {
-        New-WebBinding -Name $SiteName -Protocol "https" -Port 443 -SslFlags 0
+    # Add port binding to default site
+    $existingBinding = Get-WebBinding -Name $SiteName -Protocol "https" -Port $WebPort -ErrorAction SilentlyContinue
+    if (-not $existingBinding) {
+        New-WebBinding -Name $SiteName -Protocol "https" -Port $WebPort -SslFlags 0
     }
     
     $CertHash = (Get-ChildItem Cert:\LocalMachine\My\$Thumbprint)
-    $CertHash | New-Item -Path "IIS:\SslBindings\0.0.0.0!443" -Force
+    $CertHash | New-Item -Path "IIS:\SslBindings\0.0.0.0!$WebPort" -Force
 } catch {
     Write-Warning "Error during certificate setup, but remaining tuning will continue."
 }
@@ -194,6 +197,10 @@ netsh int ipv4 set dynamicport tcp start=1025 num=64510
 
 Write-Host "======================================================" -ForegroundColor Green
 Write-Host "  Default Web Site based configuration completed"
-Write-Host "  - Virtual Directory: https://(ServerIP)/evidence"
+if ($WebPort -eq "443") {
+    Write-Host "  - Virtual Directory: https://(ServerIP)/evidence"
+} else {
+    Write-Host "  - Virtual Directory: https://(ServerIP):$WebPort/evidence"
+}
 Write-Host "  - All tuning and .dlpenc MIME settings included"
 Write-Host "======================================================" -ForegroundColor Green
